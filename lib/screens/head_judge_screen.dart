@@ -10,11 +10,12 @@ class HeadJudgeScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('Главный судья'), backgroundColor: Colors.deepPurple),
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
-            .collection('scores')
-            .doc('current')
-            .collection('all')
-            .orderBy('timestamp', descending: true)
-            .snapshots(),
+    .collection('competitions')
+    .doc('comp_1')
+    .collection('routines')
+    .doc('routine_1')
+    .collection('scores')
+    .snapshots(),
         builder: (context, snapshot) {
           if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
