@@ -1,44 +1,38 @@
-import 'package:flutter/material.dart' hide Border; // Скрываем Border из Flutter
-import 'package:flutter/material.dart' as fm;
+import 'package:flutter/material.dart' hide Border;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:excel/excel.dart';
 import 'dart:typed_data';
-import 'dart:js_interop'; // Добавляем для работы с JS
+import 'dart:js_interop';
 import 'package:web/web.dart' as web;
 
-class HeadJudgeScreen extends fm.StatefulWidget {
+class HeadJudgeScreen extends StatefulWidget {
   const HeadJudgeScreen({super.key});
 
   @override
-  fm.State<HeadJudgeScreen> createState() => _HeadJudgeScreenState();
+  State<HeadJudgeScreen> createState() => _HeadJudgeScreenState();
 }
 
-class _HeadJudgeScreenState extends fm.State<HeadJudgeScreen> {
+class _HeadJudgeScreenState extends State<HeadJudgeScreen> {
   int _currentTab = 0;
 
   void _downloadExcel(Map<String, dynamic> data) {
     var excel = Excel.createExcel();
     Sheet sheet = excel['Протокол'];
-    sheet.appendRow([TextCellValue('ПРОТОКОЛ РЕЗУЛЬТАТОВ')]);
     sheet.appendRow([TextCellValue('Гимнастка: ${data['gymnastName']}')]);
     sheet.appendRow([TextCellValue('Предмет: ${data['apparatus']}')]);
-    sheet.appendRow([TextCellValue('D: ${data['finalD']}')]);
-    sheet.appendRow([TextCellValue('A: ${data['finalA']}')]);
-    sheet.appendRow([TextCellValue('E: ${data['finalE']}')]);
-    sheet.appendRow([TextCellValue('ИТОГО: ${data['total']}')]);
-
+    sheet.appendRow([TextCellValue('Итого: ${data['total']}')]);
+    
     final bytes = excel.encode()!;
     final content = Uint8List.fromList(bytes).toJS;
     final blob = web.Blob([content].toJS);
     final url = web.URL.createObjectURL(blob);
     final anchor = web.document.createElement('a') as web.HTMLAnchorElement;
     anchor.href = url;
-    anchor.download = "Protocol_${data['gymnastName']}.xlsx";
+    anchor.download = "Result_${data['gymnastName']}.xlsx";
     anchor.click();
-    web.URL.revokeObjectURL(url);
   }
 
-  Future<void> _finishPerformance(String name, String app, double d, double a, double e, double total) async {
+  Future<void> _finish(String name, String app, double d, double a, double e, double total) async {
     if (name == "Ожидание..." || name == "") return;
 
     await FirebaseFirestore.instance.collection('history').add({
@@ -51,108 +45,90 @@ class _HeadJudgeScreenState extends fm.State<HeadJudgeScreen> {
       'date': FieldValue.serverTimestamp(),
     });
 
-    final scoresRef = FirebaseFirestore.instance.collection('routines').doc('current').collection('scores');
-    final snapshots = await scoresRef.get();
-    for (var doc in snapshots.docs) {
-      await doc.reference.delete();
-    }
+    final scores = await FirebaseFirestore.instance.collection('routines').doc('current').collection('scores').get();
+    for (var doc in scores.docs) { await doc.reference.delete(); }
 
     await FirebaseFirestore.instance.collection('routines').doc('current').update({
       'gymnastName': 'Ожидание...',
       'apparatus': '-',
     });
-
-    fm.ScaffoldMessenger.of(context).showSnackBar(
-      const fm.SnackBar(content: fm.Text('✅ Сохранено. ТВ очищено.'), backgroundColor: fm.Colors.green),
-    );
   }
 
   @override
-  fm.Widget build(fm.BuildContext context) {
-    return fm.Scaffold(
-      appBar: fm.AppBar(title: const fm.Text('Панель Главного Судьи'), backgroundColor: fm.Colors.deepPurple),
-      body: fm.Column(
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('ГЛАВНЫЙ СУДЬЯ'), backgroundColor: Colors.indigo),
+      body: Column(
         children: [
-          fm.Row(
-            children: [
-              _buildTabBtn("СУДЕЙСТВО", 0),
-              _buildTabBtn("АРХИВ", 1),
-            ],
-          ),
-          fm.Expanded(child: _currentTab == 0 ? _buildMainTab() : _buildHistoryTab()),
+          Row(children: [
+            _tabBtn("СУДЕЙСТВО", 0),
+            _tabBtn("ИСТОРИЯ", 1),
+          ]),
+          Expanded(child: _currentTab == 0 ? _buildMain() : _buildHistory()),
         ],
       ),
     );
   }
 
-  fm.Widget _buildTabBtn(String title, int idx) {
-    bool active = _currentTab == idx;
-    return fm.Expanded(
-      child: fm.InkWell(
-        onTap: () => setState(() => _currentTab = idx),
-        child: fm.Container(
-          padding: const fm.EdgeInsets.all(16),
-          color: active ? fm.Colors.deepPurple : fm.Colors.grey[200],
-          child: fm.Text(title, textAlign: fm.TextAlign.center, 
-            style: fm.TextStyle(color: active ? fm.Colors.white : fm.Colors.black, fontWeight: fm.FontWeight.bold)),
-        ),
+  Widget _tabBtn(String txt, int i) => Expanded(
+    child: InkWell(
+      onTap: () => setState(() => _currentTab = i),
+      child: Container(
+        padding: const EdgeInsets.all(15),
+        color: _currentTab == i ? Colors.indigo : Colors.grey[300],
+        child: Text(txt, textAlign: TextAlign.center, style: TextStyle(color: _currentTab == i ? Colors.white : Colors.black)),
       ),
-    );
-  }
+    ),
+  );
 
-  fm.Widget _buildMainTab() {
+  Widget _buildMain() {
     return StreamBuilder<DocumentSnapshot>(
       stream: FirebaseFirestore.instance.collection('routines').doc('current').snapshots(),
-      builder: (context, routineSnap) {
-        final rData = routineSnap.data?.data() as Map<String, dynamic>? ?? {};
-        String gName = rData['gymnastName'] ?? "Ожидание...";
-        String gApp = rData['apparatus'] ?? "-";
+      builder: (context, rSnap) {
+        final rData = rSnap.data?.data() as Map<String, dynamic>? ?? {};
+        String name = rData['gymnastName'] ?? "Ожидание...";
+        String app = rData['apparatus'] ?? "-";
 
         return StreamBuilder<QuerySnapshot>(
           stream: FirebaseFirestore.instance.collection('routines').doc('current').collection('scores').snapshots(),
-          builder: (context, scoreSnap) {
-            final docs = scoreSnap.data?.docs ?? [];
-            Map<String, List<double>> grouped = {};
+          builder: (context, sSnap) {
+            final docs = sSnap.data?.docs ?? [];
+            Map<String, List<double>> sc = {};
             for (var d in docs) {
               final data = d.data() as Map<String, dynamic>;
-              grouped.putIfAbsent(data['role'], () => []).add((data['score'] as num).toDouble());
+              sc.putIfAbsent(data['role'], () => []).add((data['score'] as num).toDouble());
             }
 
-            double avg(List<double>? list) {
-              if (list == null || list.isEmpty) return 0.0;
-              if (list.length <= 2) return list.reduce((a, b) => a + b) / list.length;
-              list.sort();
-              return (list.reduce((a, b) => a + b) - list.first - list.last) / (list.length - 2);
+            double calc(List<double>? l) {
+              if (l == null || l.isEmpty) return 0.0;
+              if (l.length <= 2) return l.reduce((a, b) => a + b) / l.length;
+              l.sort();
+              return (l.reduce((a, b) => a + b) - l.first - l.last) / (l.length - 2);
             }
 
-            double fD = avg(grouped['DB']) + avg(grouped['DA']);
-            double fA = avg(grouped['A']);
-            double fE = avg(grouped['E']);
-            double total = fD + fA + fE;
+            double dS = calc(sc['DB']) + calc(sc['DA']);
+            double aS = calc(sc['A']);
+            double eS = calc(sc['E']);
+            double total = dS + aS + eS;
 
-            return fm.Column(
+            return Column(
               children: [
-                const fm.SizedBox(height: 20),
-                fm.Text(gName, style: const fm.TextStyle(fontSize: 28, fontWeight: fm.FontWeight.bold)),
-                fm.Text("Предмет: $gApp"),
-                const fm.Divider(height: 40),
-                fm.Row(
-                  mainAxisAlignment: fm.MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _resBox("D", fD, fm.Colors.blue),
-                    _resBox("A", fA, fm.Colors.orange),
-                    _resBox("E", fE, fm.Colors.green),
-                  ],
-                ),
-                const fm.SizedBox(height: 30),
-                fm.Text(total.toStringAsFixed(3), style: const fm.TextStyle(fontSize: 70, fontWeight: fm.FontWeight.bold)),
-                const fm.Spacer(),
-                fm.Padding(
-                  padding: const fm.EdgeInsets.all(20),
-                  child: fm.ElevatedButton(
-                    style: fm.ElevatedButton.styleFrom(backgroundColor: fm.Colors.green, minimumSize: const fm.Size(double.infinity, 70)),
-                    onPressed: () => _finishPerformance(gName, gApp, fD, fA, fE, total),
-                    child: const fm.Text("ЗАВЕРШИТЬ ВЫСТУПЛЕНИЕ", style: fm.TextStyle(fontSize: 22, color: fm.Colors.white)),
+                const SizedBox(height: 20),
+                Text(name, style: const TextStyle(fontSize: 24, fontWeight: fm.FontWeight.bold)),
+                Text("Вид: $app"),
+                const Divider(),
+                Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+                  _stat("D", dS), _stat("A", aS), _stat("E", eS),
+                ]),
+                const SizedBox(height: 30),
+                Text(total.toStringAsFixed(3), style: const TextStyle(fontSize: 60, fontWeight: FontWeight.bold)),
+                const Spacer(),
+                Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green, minimumSize: const Size(double.infinity, 60)),
+                    onPressed: () => _finish(name, app, dS, aS, eS, total),
+                    child: const Text("ЗАВЕРШИТЬ (ОЧИСТИТ ТВ)", style: TextStyle(color: Colors.white)),
                   ),
                 )
               ],
@@ -163,26 +139,19 @@ class _HeadJudgeScreenState extends fm.State<HeadJudgeScreen> {
     );
   }
 
-  fm.Widget _buildHistoryTab() {
+  Widget _buildHistory() {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance.collection('history').orderBy('date', descending: true).snapshots(),
       builder: (context, snap) {
-        if (!snap.hasData) return const fm.Center(child: fm.CircularProgressIndicator());
-        final docs = snap.data!.docs;
-        return fm.ListView.builder(
-          itemCount: docs.length,
+        if (!snap.hasData) return const Center(child: CircularProgressIndicator());
+        return ListView.builder(
+          itemCount: snap.data!.docs.length,
           itemBuilder: (context, i) {
-            final data = docs[i].data() as Map<String, dynamic>;
-            return fm.Card(
-              margin: const fm.EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: fm.ListTile(
-                title: fm.Text(data['gymnastName']),
-                subtitle: fm.Text("Итого: ${data['total']}"),
-                trailing: fm.IconButton(
-                  icon: const fm.Icon(fm.Icons.download, color: fm.Colors.blue),
-                  onPressed: () => _downloadExcel(data),
-                ),
-              ),
+            final d = snap.data!.docs[i].data() as Map<String, dynamic>;
+            return ListTile(
+              title: Text(d['gymnastName']),
+              subtitle: Text("Итого: ${d['total']}"),
+              trailing: IconButton(icon: const Icon(Icons.download), onPressed: () => _downloadExcel(d)),
             );
           },
         );
@@ -190,10 +159,8 @@ class _HeadJudgeScreenState extends fm.State<HeadJudgeScreen> {
     );
   }
 
-  fm.Widget _resBox(String l, double v, fm.Color c) {
-    return fm.Column(children: [
-      fm.Text(l, style: const fm.TextStyle(fontSize: 18, fontWeight: fm.FontWeight.bold)),
-      fm.Text(v.toStringAsFixed(3), style: fm.TextStyle(fontSize: 28, fontWeight: fm.FontWeight.bold, color: c))
-    ]);
-  }
+  Widget _stat(String l, double v) => Column(children: [
+    Text(l, style: const TextStyle(fontWeight: FontWeight.bold)),
+    Text(v.toStringAsFixed(3), style: const TextStyle(fontSize: 20)),
+  ]);
 }
