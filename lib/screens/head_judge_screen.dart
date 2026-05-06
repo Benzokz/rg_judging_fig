@@ -1,86 +1,49 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Border; // Скрываем Border из Flutter
+import 'package:flutter/material.dart' as fm;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:excel/excel.dart';
 import 'dart:typed_data';
-import 'package:web/web.dart' as web; // Современный импорт для Web
-import 'tv_screen.dart';
+import 'dart:js_interop'; // Добавляем для работы с JS
+import 'package:web/web.dart' as web;
 
-class HeadJudgeScreen extends StatefulWidget {
+class HeadJudgeScreen extends fm.StatefulWidget {
   const HeadJudgeScreen({super.key});
 
   @override
-  State<HeadJudgeScreen> createState() => _HeadJudgeScreenState();
+  fm.State<HeadJudgeScreen> createState() => _HeadJudgeScreenState();
 }
 
-class _HeadJudgeScreenState extends State<HeadJudgeScreen> {
-  int _currentTab = 0; // 0 = Текущее, 1 = История
+class _HeadJudgeScreenState extends fm.State<HeadJudgeScreen> {
+  int _currentTab = 0;
 
-  String? currentGymnastName;
-  String? currentGymnastId;
-  String currentApparatus = "Обруч";
+  void _downloadExcel(Map<String, dynamic> data) {
+    var excel = Excel.createExcel();
+    Sheet sheet = excel['Протокол'];
+    sheet.appendRow([TextCellValue('ПРОТОКОЛ РЕЗУЛЬТАТОВ')]);
+    sheet.appendRow([TextCellValue('Гимнастка: ${data['gymnastName']}')]);
+    sheet.appendRow([TextCellValue('Предмет: ${data['apparatus']}')]);
+    sheet.appendRow([TextCellValue('D: ${data['finalD']}')]);
+    sheet.appendRow([TextCellValue('A: ${data['finalA']}')]);
+    sheet.appendRow([TextCellValue('E: ${data['finalE']}')]);
+    sheet.appendRow([TextCellValue('ИТОГО: ${data['total']}')]);
 
-  // Метод для скачивания файла в вебе (замена dart:html)
-  void _downloadFile(Uint8List bytes, String fileName) {
-    final blob = web.Blob([bytes.buffer.asUint8List()].toList().cast<web.JSObject>());
+    final bytes = excel.encode()!;
+    final content = Uint8List.fromList(bytes).toJS;
+    final blob = web.Blob([content].toJS);
     final url = web.URL.createObjectURL(blob);
     final anchor = web.document.createElement('a') as web.HTMLAnchorElement;
     anchor.href = url;
-    anchor.download = fileName;
+    anchor.download = "Protocol_${data['gymnastName']}.xlsx";
     anchor.click();
     web.URL.revokeObjectURL(url);
   }
 
-  // Выбор гимнастки из базы
-  void _selectGymnast() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Выберите гимнастку'),
-        content: SizedBox(
-          width: double.maxFinite,
-          height: 500,
-          child: StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance.collection('gymnasts').snapshots(),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-              final list = snapshot.data!.docs;
-              return ListView.builder(
-                itemCount: list.length,
-                itemBuilder: (ctx, i) {
-                  final data = list[i].data() as Map<String, dynamic>;
-                  return ListTile(
-                    title: Text(data['fullName'] ?? 'Без имени'),
-                    subtitle: Text('${data['school'] ?? ''} • ${data['region'] ?? ''}'),
-                    onTap: () {
-                      setState(() {
-                        currentGymnastId = list[i].id;
-                        currentGymnastName = data['fullName'];
-                      });
-                      Navigator.pop(context);
-                    },
-                  );
-                },
-              );
-            },
-          ),
-        ),
-      ),
-    );
-  }
-
-  // Сохранение в историю и очистка текущего выступления
-  Future<void> _finishAndSaveToHistory(double d, double a, double e, double total) async {
-    if (currentGymnastName == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('⚠️ Сначала выберите гимнастку!'), backgroundColor: Colors.red),
-      );
-      return;
-    }
+  Future<void> _finishPerformance(String name, String app, double d, double a, double e, double total) async {
+    if (name == "Ожидание..." || name == "") return;
 
     await FirebaseFirestore.instance.collection('history').add({
-      'gymnastName': currentGymnastName,
-      'gymnastId': currentGymnastId,
-      'apparatus': currentApparatus,
+      'gymnastName': name,
+      'apparatus': app,
       'finalD': d,
       'finalA': a,
       'finalE': e,
@@ -88,167 +51,137 @@ class _HeadJudgeScreenState extends State<HeadJudgeScreen> {
       'date': FieldValue.serverTimestamp(),
     });
 
-    // Очистка текущих оценок в Firebase
     final scoresRef = FirebaseFirestore.instance.collection('routines').doc('current').collection('scores');
     final snapshots = await scoresRef.get();
     for (var doc in snapshots.docs) {
       await doc.reference.delete();
     }
 
-    setState(() {
-      currentGymnastName = null;
-      currentGymnastId = null;
+    await FirebaseFirestore.instance.collection('routines').doc('current').update({
+      'gymnastName': 'Ожидание...',
+      'apparatus': '-',
     });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('✅ Результат сохранен в историю'), backgroundColor: Colors.green),
+    fm.ScaffoldMessenger.of(context).showSnackBar(
+      const fm.SnackBar(content: fm.Text('✅ Сохранено. ТВ очищено.'), backgroundColor: fm.Colors.green),
     );
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Главный судья (Pavlodar 24/7)'),
-        backgroundColor: Colors.deepPurple,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.tv, size: 30),
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TvScreen())),
-          ),
-        ],
-      ),
-      body: Column(
+  fm.Widget build(fm.BuildContext context) {
+    return fm.Scaffold(
+      appBar: fm.AppBar(title: const fm.Text('Панель Главного Судьи'), backgroundColor: fm.Colors.deepPurple),
+      body: fm.Column(
         children: [
-          // Вкладки
-          Container(
-            color: Colors.grey[100],
-            child: Row(
-              children: [
-                _buildTabItem('ТЕКУЩЕЕ', 0),
-                _buildTabItem('ИСТОРИЯ', 1),
-              ],
-            ),
+          fm.Row(
+            children: [
+              _buildTabBtn("СУДЕЙСТВО", 0),
+              _buildTabBtn("АРХИВ", 1),
+            ],
           ),
-          Expanded(
-            child: _currentTab == 0 ? _buildCurrentRoutineTab() : _buildHistoryTab(),
-          ),
+          fm.Expanded(child: _currentTab == 0 ? _buildMainTab() : _buildHistoryTab()),
         ],
       ),
     );
   }
 
-  Widget _buildTabItem(String label, int index) {
-    bool isActive = _currentTab == index;
-    return Expanded(
-      child: InkWell(
-        onTap: () => setState(() => _currentTab = index),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          decoration: BoxDecoration(
-            border: Border(bottom: BorderSide(color: isActive ? Colors.deepPurple : Colors.transparent, width: 3)),
-          ),
-          child: Text(label, textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, color: isActive ? Colors.deepPurple : Colors.grey)),
+  fm.Widget _buildTabBtn(String title, int idx) {
+    bool active = _currentTab == idx;
+    return fm.Expanded(
+      child: fm.InkWell(
+        onTap: () => setState(() => _currentTab = idx),
+        child: fm.Container(
+          padding: const fm.EdgeInsets.all(16),
+          color: active ? fm.Colors.deepPurple : fm.Colors.grey[200],
+          child: fm.Text(title, textAlign: fm.TextAlign.center, 
+            style: fm.TextStyle(color: active ? fm.Colors.white : fm.Colors.black, fontWeight: fm.FontWeight.bold)),
         ),
       ),
     );
   }
 
-  Widget _buildCurrentRoutineTab() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('routines').doc('current').collection('scores').snapshots(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+  fm.Widget _buildMainTab() {
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance.collection('routines').doc('current').snapshots(),
+      builder: (context, routineSnap) {
+        final rData = routineSnap.data?.data() as Map<String, dynamic>? ?? {};
+        String gName = rData['gymnastName'] ?? "Ожидание...";
+        String gApp = rData['apparatus'] ?? "-";
 
-        final docs = snapshot.data!.docs;
-        Map<String, List<double>> groupedScores = {};
+        return StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance.collection('routines').doc('current').collection('scores').snapshots(),
+          builder: (context, scoreSnap) {
+            final docs = scoreSnap.data?.docs ?? [];
+            Map<String, List<double>> grouped = {};
+            for (var d in docs) {
+              final data = d.data() as Map<String, dynamic>;
+              grouped.putIfAbsent(data['role'], () => []).add((data['score'] as num).toDouble());
+            }
 
-        for (var doc in docs) {
-          final data = doc.data() as Map<String, dynamic>;
-          String role = data['role'] ?? 'Unknown';
-          double score = (data['score'] as num).toDouble();
-          groupedScores.putIfAbsent(role, () => []).add(score);
-        }
+            double avg(List<double>? list) {
+              if (list == null || list.isEmpty) return 0.0;
+              if (list.length <= 2) return list.reduce((a, b) => a + b) / list.length;
+              list.sort();
+              return (list.reduce((a, b) => a + b) - list.first - list.last) / (list.length - 2);
+            }
 
-        // Логика расчета среднего (FIG: убираем мин/макс если судей много)
-        double calcFinal(List<double>? list) {
-          if (list == null || list.isEmpty) return 0.0;
-          if (list.length <= 2) return list.reduce((a, b) => a + b) / list.length;
-          list.sort();
-          return (list.reduce((a, b) => a + b) - list.first - list.last) / (list.length - 2);
-        }
+            double fD = avg(grouped['DB']) + avg(grouped['DA']);
+            double fA = avg(grouped['A']);
+            double fE = avg(grouped['E']);
+            double total = fD + fA + fE;
 
-        double finalD = (calcFinal(groupedScores['DB']) + calcFinal(groupedScores['DA']));
-        double finalA = calcFinal(groupedScores['A']);
-        double finalE = calcFinal(groupedScores['E']);
-        double total = finalD + finalA + finalE;
-
-        return Column(
-          children: [
-            ListTile(
-              tileColor: Colors.amber[50],
-              leading: const Icon(Icons.person_pin, color: Colors.deepPurple, size: 40),
-              title: Text(currentGymnastName ?? "Выберите гимнастку", style: const TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: Text("Предмет: $currentApparatus"),
-              trailing: ElevatedButton(onPressed: _selectGymnast, child: const Text("Выбрать")),
-            ),
-            const Divider(),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            return fm.Column(
               children: [
-                _scoreResult("D (Сложность)", finalD, Colors.blue),
-                _scoreResult("A (Артизм)", finalA, Colors.orange),
-                _scoreResult("E (Исполнение)", finalE, Colors.green),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Text(total.toStringAsFixed(3), style: const TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: Colors.deepPurple)),
-            const Text("ИТОГОВЫЙ БАЛЛ"),
-            const Divider(),
-            Expanded(
-              child: ListView(
-                children: groupedScores.entries.map((e) => ListTile(
-                  title: Text(e.key, style: const TextStyle(fontWeight: FontWeight.bold)),
-                  trailing: Text(e.value.join(" | "), style: const TextStyle(fontSize: 18)),
-                )).toList(),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                  onPressed: () => _finishAndSaveToHistory(finalD, finalA, finalE, total),
-                  child: const Text("ЗАВЕРШИТЬ И СОХРАНИТЬ", style: TextStyle(color: Colors.white, fontSize: 18)),
+                const fm.SizedBox(height: 20),
+                fm.Text(gName, style: const fm.TextStyle(fontSize: 28, fontWeight: fm.FontWeight.bold)),
+                fm.Text("Предмет: $gApp"),
+                const fm.Divider(height: 40),
+                fm.Row(
+                  mainAxisAlignment: fm.MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _resBox("D", fD, fm.Colors.blue),
+                    _resBox("A", fA, fm.Colors.orange),
+                    _resBox("E", fE, fm.Colors.green),
+                  ],
                 ),
-              ),
-            )
-          ],
+                const fm.SizedBox(height: 30),
+                fm.Text(total.toStringAsFixed(3), style: const fm.TextStyle(fontSize: 70, fontWeight: fm.FontWeight.bold)),
+                const fm.Spacer(),
+                fm.Padding(
+                  padding: const fm.EdgeInsets.all(20),
+                  child: fm.ElevatedButton(
+                    style: fm.ElevatedButton.styleFrom(backgroundColor: fm.Colors.green, minimumSize: const fm.Size(double.infinity, 70)),
+                    onPressed: () => _finishPerformance(gName, gApp, fD, fA, fE, total),
+                    child: const fm.Text("ЗАВЕРШИТЬ ВЫСТУПЛЕНИЕ", style: fm.TextStyle(fontSize: 22, color: fm.Colors.white)),
+                  ),
+                )
+              ],
+            );
+          },
         );
       },
     );
   }
 
-  Widget _buildHistoryTab() {
+  fm.Widget _buildHistoryTab() {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance.collection('history').orderBy('date', descending: true).snapshots(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-        final docs = snapshot.data!.docs;
-
-        return ListView.builder(
+      builder: (context, snap) {
+        if (!snap.hasData) return const fm.Center(child: fm.CircularProgressIndicator());
+        final docs = snap.data!.docs;
+        return fm.ListView.builder(
           itemCount: docs.length,
           itemBuilder: (context, i) {
             final data = docs[i].data() as Map<String, dynamic>;
-            return Card(
-              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              child: ListTile(
-                leading: CircleAvatar(backgroundColor: Colors.deepPurple, child: Text("${i+1}", style: const TextStyle(color: Colors.white))),
-                title: Text(data['gymnastName'] ?? 'Гимнастка', style: const TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: Text("${data['apparatus']} | D:${data['finalD']} A:${data['finalA']} E:${data['finalE']}"),
-                trailing: Text("${data['total']}", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+            return fm.Card(
+              margin: const fm.EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: fm.ListTile(
+                title: fm.Text(data['gymnastName']),
+                subtitle: fm.Text("Итого: ${data['total']}"),
+                trailing: fm.IconButton(
+                  icon: const fm.Icon(fm.Icons.download, color: fm.Colors.blue),
+                  onPressed: () => _downloadExcel(data),
+                ),
               ),
             );
           },
@@ -257,12 +190,10 @@ class _HeadJudgeScreenState extends State<HeadJudgeScreen> {
     );
   }
 
-  Widget _scoreResult(String label, double value, Color color) {
-    return Column(
-      children: [
-        Text(label, style: const TextStyle(fontSize: 12)),
-        Text(value.toStringAsFixed(3), style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: color)),
-      ],
-    );
+  fm.Widget _resBox(String l, double v, fm.Color c) {
+    return fm.Column(children: [
+      fm.Text(l, style: const fm.TextStyle(fontSize: 18, fontWeight: fm.FontWeight.bold)),
+      fm.Text(v.toStringAsFixed(3), style: fm.TextStyle(fontSize: 28, fontWeight: fm.FontWeight.bold, color: c))
+    ]);
   }
 }
