@@ -19,7 +19,8 @@ class HeadJudgeScreen extends StatelessWidget {
         builder: (context, snapshot) {
           if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
-          final scores = snapshot.data!.docs;
+          final score = (data['score'] ?? 0).toDouble();
+score.toStringAsFixed(2)
 
           return Column(
             children: [
