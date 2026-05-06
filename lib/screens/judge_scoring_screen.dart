@@ -24,15 +24,17 @@ class _JudgeScoringScreenState extends State<JudgeScoringScreen> {
 
     try {
       await FirebaseFirestore.instance
-          .collection('scores')
-          .doc('current')
-          .collection('all')
-          .add({
-        'role': widget.role,
-        'score': score,
-        'timestamp': FieldValue.serverTimestamp(),
-      });
-
+await FirebaseFirestore.instance
+    .collection('competitions')
+    .doc('comp_1')
+    .collection('routines')
+    .doc('routine_1')
+    .collection('judges')
+    .doc(widget.role)
+    .set({
+  'score': score,
+  'updatedAt': FieldValue.serverTimestamp(),
+});
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('✅ Балл отправлен!'), backgroundColor: Colors.green),
       );

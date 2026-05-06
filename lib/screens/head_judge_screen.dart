@@ -4,6 +4,21 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class HeadJudgeScreen extends StatelessWidget {
   const HeadJudgeScreen({super.key});
 
+  double calculateFinalScore(List<QueryDocumentSnapshot> docs) {
+    final scores = docs
+        .map((d) => (d['score'] ?? 0).toDouble())
+        .toList();
+
+    if (scores.length < 3) return 0;
+
+    scores.sort();
+    scores.removeAt(0);
+    scores.removeLast();
+
+    final sum = scores.reduce((a, b) => a + b);
+    return sum / scores.length;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -25,14 +40,25 @@ class HeadJudgeScreen extends StatelessWidget {
           }
 
           final scores = snapshot.data!.docs;
+          final finalScore = calculateFinalScore(scores);
 
           return Column(
             children: [
               Padding(
                 padding: const EdgeInsets.all(16),
                 child: Text(
+                  'Итоговый балл: ${finalScore.toStringAsFixed(3)}',
+                  style: const TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(8),
+                child: Text(
                   'Получено баллов: ${scores.length}',
-                  style: const TextStyle(fontSize: 22),
+                  style: const TextStyle(fontSize: 18),
                 ),
               ),
               Expanded(
@@ -58,7 +84,7 @@ class HeadJudgeScreen extends StatelessWidget {
                         trailing: Text(
                           score.toStringAsFixed(2),
                           style: const TextStyle(
-                            fontSize: 32,
+                            fontSize: 28,
                             fontWeight: FontWeight.bold,
                             color: Colors.pink,
                           ),
