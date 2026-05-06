@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Border;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:excel/excel.dart' hide Border;
 import 'dart:typed_data';
@@ -16,7 +16,29 @@ class HeadJudgeScreen extends StatefulWidget {
 class _HeadJudgeScreenState extends State<HeadJudgeScreen> {
   int _currentTab = 0;
 
-  // Выбор гимнастки из базы и автоматическая отправка в Firestore
+  // Метод для выгрузки Excel
+  void _downloadExcel(Map<String, dynamic> data) {
+    var excel = Excel.createExcel();
+    Sheet sheet = excel['Протокол'];
+    sheet.appendRow([TextCellValue('ПРОТОКОЛ РЕЗУЛЬТАТОВ')]);
+    sheet.appendRow([TextCellValue('Гимнастка: ${data['gymnastName']}')]);
+    sheet.appendRow([TextCellValue('Предмет: ${data['apparatus']}')]);
+    sheet.appendRow([TextCellValue('D: ${data['finalD']}')]);
+    sheet.appendRow([TextCellValue('A: ${data['finalA']}')]);
+    sheet.appendRow([TextCellValue('E: ${data['finalE']}')]);
+    sheet.appendRow([TextCellValue('ИТОГО: ${data['total']}')]);
+
+    final bytes = excel.encode()!;
+    final content = Uint8List.fromList(bytes).toJS;
+    final blob = web.Blob([content].toJS);
+    final url = web.URL.createObjectURL(blob);
+    final anchor = web.document.createElement('a') as web.HTMLAnchorElement;
+    anchor.href = url;
+    anchor.download = "Protocol_${data['gymnastName']}.xlsx";
+    anchor.click();
+    web.URL.revokeObjectURL(url);
+  }
+
   void _selectGymnast() {
     showDialog(
       context: context,
@@ -39,10 +61,9 @@ class _HeadJudgeScreenState extends State<HeadJudgeScreen> {
                     title: Text(data['fullName'] ?? ''),
                     subtitle: Text(data['school'] ?? ''),
                     onTap: () async {
-                      // Автоматически обновляем данные в "current" для всех экранов
                       await FirebaseFirestore.instance.collection('routines').doc('current').set({
                         'gymnastName': data['fullName'],
-                        'apparatus': 'Обруч', // По умолчанию, можно расширить выбор
+                        'apparatus': 'Обруч',
                         'region': data['region'] ?? '',
                       }, SetOptions(merge: true));
                       Navigator.pop(context);
@@ -57,15 +78,12 @@ class _HeadJudgeScreenState extends State<HeadJudgeScreen> {
     );
   }
 
-  // Срезка оценок по правилам FIG (ср. арифм. без min/max)
   double _calculateFigScore(List<double> scores) {
     if (scores.isEmpty) return 0.0;
     if (scores.length <= 2) return scores.reduce((a, b) => a + b) / scores.length;
-    
     List<double> sorted = List.from(scores)..sort();
-    sorted.removeAt(0); // Удаляем минимальную
-    sorted.removeLast(); // Удаляем максимальную
-    
+    sorted.removeAt(0);
+    sorted.removeLast();
     return sorted.reduce((a, b) => a + b) / sorted.length;
   }
 
@@ -82,11 +100,9 @@ class _HeadJudgeScreenState extends State<HeadJudgeScreen> {
       'date': FieldValue.serverTimestamp(),
     });
 
-    // Очистка текущих баллов
     final scores = await FirebaseFirestore.instance.collection('routines').doc('current').collection('scores').get();
     for (var doc in scores.docs) { await doc.reference.delete(); }
 
-    // Сброс статуса
     await FirebaseFirestore.instance.collection('routines').doc('current').update({
       'gymnastName': 'Ожидание...',
       'apparatus': '-',
@@ -156,7 +172,6 @@ class _HeadJudgeScreenState extends State<HeadJudgeScreen> {
               grouped.putIfAbsent(data['role'], () => []).add((data['score'] as num).toDouble());
             }
 
-            // РАСЧЕТ ПО FIG 2025-2028
             double dFinal = _calculateFigScore(grouped['DB'] ?? []) + _calculateFigScore(grouped['DA'] ?? []);
             double aFinal = _calculateFigScore(grouped['A'] ?? []);
             double eFinal = _calculateFigScore(grouped['E'] ?? []);
@@ -164,82 +179,47 @@ class _HeadJudgeScreenState extends State<HeadJudgeScreen> {
 
             return Column(
               children: [
-                // Карточка гимнастки (Сюда данные прилетают АВТОМАТОМ после выбора)
                 Padding(
                   padding: const EdgeInsets.all(16),
-                  child: Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(15),
-                      boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10)],
-                    ),
-                    child: Row(
-                      children: [
-                        CircleAvatar(radius: 30, backgroundColor: Colors.pink[100], child: const Icon(Icons.person, color: Colors.pink)),
-                        const SizedBox(width: 20),
-                        Expanded(child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(gymnastName, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-                            Text("ПРЕДМЕТ: $apparatus", style: const TextStyle(color: Colors.grey)),
-                          ],
-                        )),
-                        ElevatedButton(onPressed: _selectGymnast, child: const Text("ВЫБРАТЬ")),
-                      ],
+                  child: Card(
+                    child: ListTile(
+                      title: Text(gymnastName, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                      subtitle: Text("ПРЕДМЕТ: $apparatus"),
+                      trailing: ElevatedButton(onPressed: _selectGymnast, child: const Text("ВЫБРАТЬ")),
                     ),
                   ),
                 ),
-
-                // ТОТАЛ И РАСШИФРОВКА
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      _scoreBox("D (DB+DA)", dFinal, Colors.blue),
-                      _scoreBox("A (Artistry)", aFinal, Colors.orange),
-                      _scoreBox("E (Execution)", eFinal, Colors.green),
+                      _scoreBox("D", dFinal, Colors.blue),
+                      _scoreBox("A", aFinal, Colors.orange),
+                      _scoreBox("E", eFinal, Colors.green),
                     ],
                   ),
                 ),
-
                 const SizedBox(height: 20),
-                Text("TOTAL SCORE", style: TextStyle(color: Colors.grey[600], letterSpacing: 2)),
                 Text(total.toStringAsFixed(3), style: const TextStyle(fontSize: 80, fontWeight: FontWeight.black, color: Colors.deepPurple)),
-
-                // Список судей в реальном времени
-                const Padding(
-                  padding: EdgeInsets.all(8.0),
-                  child: Text("ПОСТУПИВШИЕ ОЦЕНКИ:", style: TextStyle(fontWeight: FontWeight.bold)),
-                ),
                 Expanded(
                   child: ListView.builder(
                     itemCount: docs.length,
                     itemBuilder: (context, i) {
                       final data = docs[i].data() as Map<String, dynamic>;
-                      return Card(
-                        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                        child: ListTile(
-                          dense: true,
-                          title: Text("Судья ${data['role']}"),
-                          trailing: Text("${data['score']}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                        ),
+                      return ListTile(
+                        title: Text("Судья ${data['role']}"),
+                        trailing: Text("${data['score']}", style: const TextStyle(fontWeight: FontWeight.bold)),
                       );
                     },
                   ),
                 ),
-
                 Padding(
                   padding: const EdgeInsets.all(16),
                   child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green[700],
-                      minimumSize: const Size(double.infinity, 60),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))
-                    ),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green[700], minimumSize: const Size(double.infinity, 60)),
                     onPressed: () => _finishPerformance(gymnastName, apparatus, dFinal, aFinal, eFinal, total),
-                    child: const Text("ЗАВЕРШИТЬ И СОХРАНИТЬ", style: TextStyle(fontSize: 18, color: Colors.white)),
+                    child: const Text("ЗАВЕРШИТЬ И СОХРАНИТЬ", style: TextStyle(color: Colors.white)),
                   ),
                 )
               ],
@@ -265,11 +245,18 @@ class _HeadJudgeScreenState extends State<HeadJudgeScreen> {
         return ListView.builder(
           itemCount: snap.data!.docs.length,
           itemBuilder: (context, i) {
-            final d = snap.data!.docs[i].data() as Map<String, dynamic>;
+            final doc = snap.data!.docs[i];
+            final d = doc.data() as Map<String, dynamic>;
             return ListTile(
               title: Text(d['gymnastName']),
               subtitle: Text(d['apparatus']),
-              trailing: Text(d['total'].toStringAsFixed(3), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(d['total'].toStringAsFixed(3), style: const TextStyle(fontWeight: FontWeight.bold)),
+                  IconButton(icon: const Icon(Icons.download), onPressed: () => _downloadExcel(d)),
+                ],
+              ),
             );
           },
         );
