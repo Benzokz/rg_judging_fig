@@ -36,7 +36,7 @@ score.toStringAsFixed(2)
                     return Card(
                       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       child: ListTile(
-                        leading: CircleAvatar(child: Text(data['role'].toString())),
+                        leading: CircleAvatar(child: Text(scores[index].id)),
                         title: Text('${data['role']}'),
                         trailing: Text(
                           data['score'].toStringAsFixed(2),
