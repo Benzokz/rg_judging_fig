@@ -16,16 +16,15 @@ class HeadJudgeScreen extends StatefulWidget {
 class _HeadJudgeScreenState extends State<HeadJudgeScreen> {
   int _currentTab = 0;
 
-  // Метод для выгрузки Excel
   void _downloadExcel(Map<String, dynamic> data) {
     var excel = Excel.createExcel();
     Sheet sheet = excel['Протокол'];
     sheet.appendRow([TextCellValue('ПРОТОКОЛ РЕЗУЛЬТАТОВ')]);
     sheet.appendRow([TextCellValue('Гимнастка: ${data['gymnastName']}')]);
     sheet.appendRow([TextCellValue('Предмет: ${data['apparatus']}')]);
-    sheet.appendRow([TextCellValue('D: ${data['finalD']}')]);
-    sheet.appendRow([TextCellValue('A: ${data['finalA']}')]);
-    sheet.appendRow([TextCellValue('E: ${data['finalE']}')]);
+    sheet.appendRow([TextCellValue('D: ${data['finalD'] ?? 0.0}')]);
+    sheet.appendRow([TextCellValue('A: ${data['finalA'] ?? 0.0}')]);
+    sheet.appendRow([TextCellValue('E: ${data['finalE'] ?? 0.0}')]);
     sheet.appendRow([TextCellValue('ИТОГО: ${data['total']}')]);
 
     final bytes = excel.encode()!;
@@ -34,19 +33,28 @@ class _HeadJudgeScreenState extends State<HeadJudgeScreen> {
     final url = web.URL.createObjectURL(blob);
     final anchor = web.document.createElement('a') as web.HTMLAnchorElement;
     anchor.href = url;
-    anchor.download = "Protocol_${data['gymnastName']}.xlsx";
+    anchor.download = "Result_${data['gymnastName']}.xlsx";
     anchor.click();
     web.URL.revokeObjectURL(url);
+  }
+
+  double _calculateFigScore(List<double> scores) {
+    if (scores.isEmpty) return 0.0;
+    if (scores.length <= 2) return scores.reduce((a, b) => a + b) / scores.length;
+    List<double> sorted = List.from(scores)..sort();
+    sorted.removeAt(0);
+    sorted.removeLast();
+    return sorted.reduce((a, b) => a + b) / sorted.length;
   }
 
   void _selectGymnast() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('ВЫБОР ГИМНАСТКИ (FIG 2025-2028)'),
+        title: const Text('ВЫБОР ГИМНАСТКИ'),
         content: SizedBox(
           width: double.maxFinite,
-          height: 500,
+          height: 400,
           child: StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance.collection('gymnasts').snapshots(),
             builder: (context, snapshot) {
@@ -57,9 +65,7 @@ class _HeadJudgeScreenState extends State<HeadJudgeScreen> {
                 itemBuilder: (ctx, i) {
                   final data = list[i].data() as Map<String, dynamic>;
                   return ListTile(
-                    leading: const Icon(Icons.person_add),
-                    title: Text(data['fullName'] ?? ''),
-                    subtitle: Text(data['school'] ?? ''),
+                    title: Text(data['fullName'] ?? 'Без имени'),
                     onTap: () async {
                       await FirebaseFirestore.instance.collection('routines').doc('current').set({
                         'gymnastName': data['fullName'],
@@ -78,18 +84,8 @@ class _HeadJudgeScreenState extends State<HeadJudgeScreen> {
     );
   }
 
-  double _calculateFigScore(List<double> scores) {
-    if (scores.isEmpty) return 0.0;
-    if (scores.length <= 2) return scores.reduce((a, b) => a + b) / scores.length;
-    List<double> sorted = List.from(scores)..sort();
-    sorted.removeAt(0);
-    sorted.removeLast();
-    return sorted.reduce((a, b) => a + b) / sorted.length;
-  }
-
   Future<void> _finishPerformance(String name, String app, double d, double a, double e, double total) async {
     if (name == "Ожидание..." || name.isEmpty) return;
-
     await FirebaseFirestore.instance.collection('history').add({
       'gymnastName': name,
       'apparatus': app,
@@ -99,10 +95,8 @@ class _HeadJudgeScreenState extends State<HeadJudgeScreen> {
       'total': total,
       'date': FieldValue.serverTimestamp(),
     });
-
     final scores = await FirebaseFirestore.instance.collection('routines').doc('current').collection('scores').get();
     for (var doc in scores.docs) { await doc.reference.delete(); }
-
     await FirebaseFirestore.instance.collection('routines').doc('current').update({
       'gymnastName': 'Ожидание...',
       'apparatus': '-',
@@ -113,24 +107,21 @@ class _HeadJudgeScreenState extends State<HeadJudgeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('ГЛАВНЫЙ СУДЬЯ: ПАНЕЛЬ УПРАВЛЕНИЯ'),
+        title: const Text('ГЛАВНЫЙ СУДЬЯ'),
         backgroundColor: Colors.black87,
         actions: [
           IconButton(
-            icon: const Icon(Icons.settings_overscan, size: 30),
+            icon: const Icon(Icons.tv),
             onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TvScreen())),
           ),
         ],
       ),
       body: Column(
         children: [
-          Container(
-            color: Colors.grey[200],
-            child: Row(children: [
-              _tabBtn("СУДЕЙСТВО", 0),
-              _tabBtn("АРХИВ", 1),
-            ]),
-          ),
+          Row(children: [
+            _tabBtn("СУДЕЙСТВО", 0),
+            _tabBtn("АРХИВ", 1),
+          ]),
           Expanded(child: _currentTab == 0 ? _buildMainSystem() : _buildHistory()),
         ],
       ),
@@ -141,15 +132,12 @@ class _HeadJudgeScreenState extends State<HeadJudgeScreen> {
     child: InkWell(
       onTap: () => setState(() => _currentTab = i),
       child: Container(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(15),
         decoration: BoxDecoration(
-          color: _currentTab == i ? Colors.deepPurple : Colors.transparent,
-          border: Border(bottom: BorderSide(color: _currentTab == i ? Colors.white : Colors.transparent, width: 3)),
+          color: _currentTab == i ? Colors.deepPurple : Colors.grey[200],
+          border: Border(bottom: BorderSide(color: _currentTab == i ? Colors.white : Colors.transparent, width: 2)),
         ),
-        child: Text(t, textAlign: TextAlign.center, style: TextStyle(
-          color: _currentTab == i ? Colors.white : Colors.black54, 
-          fontWeight: FontWeight.bold
-        )),
+        child: Text(t, textAlign: TextAlign.center, style: TextStyle(color: _currentTab == i ? Colors.white : Colors.black87, fontWeight: FontWeight.bold)),
       ),
     ),
   );
@@ -171,7 +159,6 @@ class _HeadJudgeScreenState extends State<HeadJudgeScreen> {
               final data = d.data() as Map<String, dynamic>;
               grouped.putIfAbsent(data['role'], () => []).add((data['score'] as num).toDouble());
             }
-
             double dFinal = _calculateFigScore(grouped['DB'] ?? []) + _calculateFigScore(grouped['DA'] ?? []);
             double aFinal = _calculateFigScore(grouped['A'] ?? []);
             double eFinal = _calculateFigScore(grouped['E'] ?? []);
@@ -179,49 +166,30 @@ class _HeadJudgeScreenState extends State<HeadJudgeScreen> {
 
             return Column(
               children: [
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Card(
-                    child: ListTile(
-                      title: Text(gymnastName, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-                      subtitle: Text("ПРЕДМЕТ: $apparatus"),
-                      trailing: ElevatedButton(onPressed: _selectGymnast, child: const Text("ВЫБРАТЬ")),
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      _scoreBox("D", dFinal, Colors.blue),
-                      _scoreBox("A", aFinal, Colors.orange),
-                      _scoreBox("E", eFinal, Colors.green),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Text(total.toStringAsFixed(3), style: const TextStyle(fontSize: 80, fontWeight: FontWeight.black, color: Colors.deepPurple)),
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: docs.length,
-                    itemBuilder: (context, i) {
-                      final data = docs[i].data() as Map<String, dynamic>;
-                      return ListTile(
-                        title: Text("Судья ${data['role']}"),
-                        trailing: Text("${data['score']}", style: const TextStyle(fontWeight: FontWeight.bold)),
-                      );
-                    },
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green[700], minimumSize: const Size(double.infinity, 60)),
-                    onPressed: () => _finishPerformance(gymnastName, apparatus, dFinal, aFinal, eFinal, total),
-                    child: const Text("ЗАВЕРШИТЬ И СОХРАНИТЬ", style: TextStyle(color: Colors.white)),
-                  ),
-                )
+                Card(margin: const EdgeInsets.all(16), child: ListTile(
+                  title: Text(gymnastName, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                  subtitle: Text("ПРЕДМЕТ: $apparatus"),
+                  trailing: ElevatedButton(onPressed: _selectGymnast, child: const Text("ВЫБРАТЬ")),
+                )),
+                Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+                  _scoreBox("D", dFinal, Colors.blue),
+                  _scoreBox("A", aFinal, Colors.orange),
+                  _scoreBox("E", eFinal, Colors.green),
+                ]),
+                const SizedBox(height: 10),
+                Text(total.toStringAsFixed(3), style: const TextStyle(fontSize: 60, fontWeight: FontWeight.black, color: Colors.deepPurple)),
+                Expanded(child: ListView.builder(
+                  itemCount: docs.length,
+                  itemBuilder: (context, i) {
+                    final data = docs[i].data() as Map<String, dynamic>;
+                    return ListTile(title: Text("Судья ${data['role']}"), trailing: Text("${data['score']}"));
+                  },
+                )),
+                Padding(padding: const EdgeInsets.all(16), child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green[700], minimumSize: const Size(double.infinity, 50)),
+                  onPressed: () => _finishPerformance(gymnastName, apparatus, dFinal, aFinal, eFinal, total),
+                  child: const Text("ЗАВЕРШИТЬ И СОХРАНИТЬ", style: TextStyle(color: Colors.white)),
+                ))
               ],
             );
           },
@@ -230,12 +198,10 @@ class _HeadJudgeScreenState extends State<HeadJudgeScreen> {
     );
   }
 
-  Widget _scoreBox(String label, double val, Color c) => Column(
-    children: [
-      Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-      Text(val.toStringAsFixed(3), style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: c)),
-    ],
-  );
+  Widget _scoreBox(String label, double val, Color c) => Column(children: [
+    Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
+    Text(val.toStringAsFixed(3), style: TextStyle(fontSize: 20, color: c, fontWeight: FontWeight.bold)),
+  ]);
 
   Widget _buildHistory() {
     return StreamBuilder<QuerySnapshot>(
@@ -245,18 +211,11 @@ class _HeadJudgeScreenState extends State<HeadJudgeScreen> {
         return ListView.builder(
           itemCount: snap.data!.docs.length,
           itemBuilder: (context, i) {
-            final doc = snap.data!.docs[i];
-            final d = doc.data() as Map<String, dynamic>;
+            final d = snap.data!.docs[i].data() as Map<String, dynamic>;
             return ListTile(
               title: Text(d['gymnastName']),
-              subtitle: Text(d['apparatus']),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(d['total'].toStringAsFixed(3), style: const TextStyle(fontWeight: FontWeight.bold)),
-                  IconButton(icon: const Icon(Icons.download), onPressed: () => _downloadExcel(d)),
-                ],
-              ),
+              subtitle: Text("${d['apparatus']} | ${d['total'].toStringAsFixed(3)}"),
+              trailing: IconButton(icon: const Icon(Icons.download), onPressed: () => _downloadExcel(d)),
             );
           },
         );
